@@ -15,7 +15,7 @@ dependencies = [
 ]
 
 [dependency-groups]
-dev = ["pytest>=8.0", "pytest-cov>=5.0", "httpx2>=0.28"]
+dev = ["pytest>=8.0", "pytest-cov>=5.0", "httpx2>=0.28", "ruff>=0.8,<1"]
 
 [tool.uv.sources]
 iserv-ausleihe-api = { path = "../ausleihe-api", editable = true }

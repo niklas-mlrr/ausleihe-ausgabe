@@ -8,6 +8,20 @@
 > `docs/phase4_modus_b_2026-06-15.md`, `docs/hardening_2026-06-18.md`) und
 > werden hier nur verlinkt, nicht dupliziert.
 
+## 2026-09-05 — server/sessions.py in neun Module aufgeteilt (Welle 6)
+
+Reiner Struktur-Refactor, keine Verhaltensänderung: `server/sessions.py`
+(2976 Zeilen, 92 Funktionen, mindestens sechs unabhängige Aufgaben) ist jetzt
+eine 250-Zeilen-Fassade ohne eigene Logik. Details, Modul-Übersicht und die
+Zyklus-Begründung stehen in `docs/PLAN.md` §2.1. Neue Dateien:
+`session_tokens.py`, `scan_booking.py`, `book_visibility.py`,
+`loan_slip_flow.py`, `device_broadcast.py`, `session_lifecycle.py`,
+`helper_queue.py`, `scan_station_session.py`, `device_persistence.py`.
+Jede der ~40 bisherigen Importstellen (Routen, Tests) blieb unverändert —
+`sessions.py` re-exportiert alle Namen mit explizitem `__all__`. Vollständige
+Test-/Ruff-Verifikation nach jedem einzelnen ausgelagerten Modul (nicht erst
+am Ende), s. `docs/test_status.md`.
+
 ## 2026-08-13 — Drucker-Scanner: Klassenpräfix, Beep, 10s-Kamerapause, Scan-Station-Auto-Fertig
 
 Vier kleinere Nachbesserungen:

@@ -1,0 +1,92 @@
+name: CI
+
+# Läuft bei jedem Push und bei jedem Pull Request. Braucht KEIN Secret und
+# erreicht NIEMALS IServ: die Unit-Suite ist vollständig offline (kein Netz,
+# kein Playwright-Browser, kein echter IServ-Client — s. CLAUDE.md,
+# Abschnitt „PRODUKTIONS-SCHUTZ", und `tests/conftest.py`). Playwright/E2E-
+# Skripte in `automation/` sind bewusst NICHT Teil dieses Workflows.
+on:
+  push:
+  pull_request:
+
+# GitHub Actions kann nur innerhalb von $GITHUB_WORKSPACE auschecken. Das
+# Geschwister-Layout ("ausleihe-api/ und ausleihe-ausgabe/ liegen
+# nebeneinander", s. CLAUDE.md-Setup) wird deshalb direkt im Workspace
+# nachgebaut:
+#
+#   $GITHUB_WORKSPACE/
+#     ausleihe-ausgabe/   <- dieses Repo
+#     ausleihe-api/       <- Geschwister-Repo, öffentlich
+#
+# pyproject.toml bindet ausleihe-api über [tool.uv.sources] als relativen,
+# editierbaren Pfad ein ("../ausleihe-api") - ohne dieses Layout schlägt
+# schon `uv sync` fehl. Nur EIN Geschwister-Repo nötig (anders als
+# sba-dashboard, das zusätzlich sba-bestand einbindet) - ausleihe-ausgabe
+# hat sonst keine internen Geschwister-Abhängigkeiten.
+jobs:
+  tests:
+    name: tests (ubuntu-latest, Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    # Die Suite ist mit Coverage-Messung (server/, per pyproject.toml-addopts
+    # immer an) langsam - mehrere Minuten, nicht Sekunden. 30 Minuten sind
+    # eine reine Obergrenze gegen einen echten Dauerläufer, ohne
+    # Leistungsaussage über den gesunden Fall.
+    timeout-minutes: 30
+    strategy:
+      # Ein 3.13-Fehlschlag darf das 3.12-Ergebnis nicht verschlucken.
+      fail-fast: false
+      matrix:
+        # requires-python ist ">=3.12" (pyproject.toml). Kein Windows-Job:
+        # diese Anwendung läuft am Ausgabe-Tresen auf einem Mac- oder
+        # Linux-Laptop (s. README/CLAUDE.md), und anders als z. B.
+        # sba-dashboards Datei-Sperrpfad (msvcrt vs. fcntl) gibt es hier
+        # keinen Windows-spezifischen Zweig im Code, der einen eigenen
+        # Runner rechtfertigen würde.
+        python-version: ["3.12", "3.13"]
+    defaults:
+      run:
+        working-directory: ausleihe-ausgabe
+    steps:
+      - name: ausleihe-ausgabe auschecken
+        uses: actions/checkout@v5
+        with:
+          path: ausleihe-ausgabe
+
+      - name: ausleihe-api auschecken (Geschwister-Repo)
+        uses: actions/checkout@v5
+        with:
+          repository: niklas-mlrr/ausleihe-api
+          path: ausleihe-api
+
+      # actions/setup-python statt "uv python install": setup-python bringt
+      # einen vorinstallierten, von GitHub gepflegten Python-Build mit und
+      # braucht dafür keinen zusätzlichen Download bei jedem Lauf. uv
+      # erkennt den von setup-python auf dem PATH platzierten Interpreter
+      # automatisch.
+      - name: Python ${{ matrix.python-version }} einrichten
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      # astral-sh/setup-uv installiert nur den uv-Binärbaustein selbst;
+      # Python kommt oben aus actions/setup-python. Ab v8 veröffentlicht
+      # setup-uv keine wandernden Major-Tags mehr (kein "@v8", nur volle
+      # Versionen wie "@v10.0.1") - deshalb hier ausnahmsweise eine exakte
+      # Version statt eines Major-Tags.
+      - name: uv einrichten
+        uses: astral-sh/setup-uv@v10.0.1
+        with:
+          enable-cache: true
+          cache-dependency-glob: "ausleihe-ausgabe/uv.lock"
+
+      - name: Abhängigkeiten installieren
+        run: uv sync --all-groups
+
+      - name: Ruff (Lint)
+        run: uv run ruff check server tests
+
+      # Kein Mypy-Schritt: dieses Repo hat keine [tool.mypy]-Konfiguration
+      # und ist nicht auf diesen Standard hin typisiert. Eine Typprüfung
+      # nachzurüsten ist ein eigenes Projekt, hier bewusst nicht angefangen.
+      - name: Pytest
+        run: uv run pytest -q

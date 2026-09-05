@@ -100,6 +100,48 @@ Helfer-/Schüler-Handy (Browser: Kamera-Scanner)      iPad (QR-Anzeige)
   werden (muss für `get_students_for_form` matchen) — das Präfix wird
   daher nur in der UI gestrippt, nicht im gespeicherten Wert.
 
+### 2.1 Aufteilung innerhalb von `server/` (Welle 6, 2026-09-05)
+
+Eine Datei, eine Aufgabe. Bis 2026-09-05 vereinte `sessions.py` mit 2976
+Zeilen und 92 Funktionen mindestens sechs unabhängige Aufgaben — Token-
+Erzeugung, Buchungs-Precheck, Bücherlisten-Sichtbarkeit, Leihschein-Druck,
+Geräte-Broadcast und den Scan-Station-/Modus-B-Lebenszyklus — und war damit
+die Datei, die praktisch jedes neue Feature anfassen musste (Vorbild für
+diesen Schnitt: `sba-dashboard/docs/architektur.md`, Abschnitt „Aufteilung
+innerhalb von `app/`").
+
+```text
+server/
+  sessions.py               Fassade: re-exportiert alle neun Module unten
+                             mit explizitem __all__, keine eigene Logik mehr
+  session_tokens.py         Token-/Code-/QR-Erzeugung
+  scan_booking.py           Scan-Auswertung + Buchungs-Precheck/Commit (PLAN §6)
+  book_visibility.py        Bücherlisten-Hydration & Sichtbarkeitsfilter
+  loan_slip_flow.py         Leihschein-Druck (Modus A/B, telefonbasiert)
+  device_broadcast.py       iPad-/Drucker-Display(+-Scanner)/Lehrkraft-Broadcast
+  session_lifecycle.py      Modus-A/B Session-/Worker-Lebenszyklus + Sweeper
+  helper_queue.py           Helfer-Warteschlange: Zuweisung, Booklist, Zuschauer
+  scan_station_session.py   Scan-Station: Gerät, Laden, Zettel-Druck, TTL-Sweep
+  device_persistence.py     Persistenz über Serverneustarts
+```
+
+`sessions.py` bleibt die öffentliche Fassade, damit die ~40 bestehenden
+Importstellen (Routen, Tests) unverändert `from .sessions import X` bzw.
+`from server.sessions import X` schreiben können — der Split hat keinen
+einzigen Call-Site anfassen müssen. Aus demselben Grund lösen die neuen
+Module gemeinsam genutzte Collaborators (`get_hub`, `get_config`,
+`get_state`, `get_book_order_for_form`, `get_hidden_isbns_for_form`,
+`server_lan_ip`, `secrets`) zur Laufzeit über diese Fassade auf
+(`_sessions.get_hub()` usw., s. `scan_booking.py`-Modul-Docstring) statt sie
+direkt aus ihrem Ursprungsmodul zu importieren — Unit-Tests patchen sie als
+`sessions.get_hub` & Co. (Monkeypatch auf dem Fassaden-Modul-Objekt), und nur
+ein zur Laufzeit aufgelöster Zugriff über genau dieses Modul-Objekt sieht
+einen solchen Patch. Zwei echte Modul-Zyklen ließen sich beim Schnitt nicht
+vermeiden und werden lokal über dieselbe Fassade gebrochen: `scan_booking.py`
+<-> `book_visibility.py`/`loan_slip_flow.py`, sowie `session_lifecycle.py`
+<-> `helper_queue.py`/`scan_station_session.py` (Details in den betroffenen
+Modul-Docstrings/Kommentaren).
+
 ## 3. Rollen- und Sicherheitsmodell
 
 | Rolle | Gerät | Zugang | Darf |
