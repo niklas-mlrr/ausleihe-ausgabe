@@ -8,6 +8,30 @@
 > `docs/phase4_modus_b_2026-06-15.md`, `docs/hardening_2026-06-18.md`) und
 > werden hier nur verlinkt, nicht dupliziert.
 
+## 2026-09-05 — Zettel-Code-Trio als `StationSlipCodes` aus `AppState` gezogen
+
+Die eine Teil-Extraktion, die die im Eintrag darunter gemessene Schwelle
+(~25 Aufrufstellen) unterschreitet — und die einzige, die gemacht wurde.
+Reiner Struktur-Refactor, keine Verhaltensänderung: 635 Tests grün.
+
+- `station_codes` / `station_code_by_student` / `station_last_code_by_student`
+  heißen jetzt `by_code` / `by_student` / `last_by_student` auf der neuen
+  Dataclass `StationSlipCodes`, erreichbar über `state.slip_codes`. Die drei
+  Dicts wurden ohnehin nur gemeinsam verändert; der Kommentarblock zur
+  Nie-Recyceln-Regel wandert mit an die Klasse.
+- **Die vier Methoden auf `AppState` bleiben** (`allocate_station_code`,
+  `invalidate_station_code`, `station_reactivate_code`,
+  `student_id_for_station_code`) — jetzt als einzeilige Weiterleitungen. Sie
+  haben 42 Aufrufstellen außerhalb von `state.py`; die zu ändern hätte genau
+  den Fehler wiederholt, wegen dem Modus B und Drucker/Display flach bleiben.
+  Verschoben wurde die Zusammengehörigkeit der Daten, nicht die Aufruffläche.
+- Neu `has_active_code(student_id)`: die vier Direktzugriffe außerhalb von
+  `state.py` (`ws.py`, `loan_slip_flow.py`, zweimal in `test_scan_station.py`)
+  fragten alle dasselbe — „hat dieser Schüler gerade einen gültigen Zettel?".
+  Als `student_id in state.station_code_by_student` war das ein Dict-Detail,
+  jetzt ist es die Frage selbst.
+- Begründung und Feld-Rationale in `docs/PLAN.md` § State-Feld-Rationale.
+
 ## 2026-09-05 — Zwei rote CI-Läufe behoben, pytest-timeout, AppState-Gruppierung abgelehnt
 
 Die am selben Tag frisch eingerichtete CI war im ersten Lauf rot — genau dafür
@@ -1423,7 +1447,7 @@ bisher verhielt sich „Selbstauslöser" für sie provisorisch wie „Automatisc
   Klassen-Tabelle `renderCtxQueue` entfernt, nur noch „Aktuell in Ausgabe" +
   Helferclient-Warteschlange als Auslöser) bleibt bestehen.
 
-## 2026-08-10 — Host-Aktionssymbole „Aktuell in Ausgabe“ überarbeitet
+## 2026-08-10 — Host-Aktionssymbole „Aktuell in Ausgabe" überarbeitet
 
 - **Trennen:** Statt des geometrischen Ketten-Symbols (Eintrag 2026-08-09)
   jetzt ein durchgestrichenes WLAN-Symbol (Bögen + Punkt, Diagonale von
@@ -1432,7 +1456,7 @@ bisher verhielt sich „Selbstauslöser" für sie provisorisch wie „Automatisc
   ein großes 4x4-Karomuster ohne Fahnenmast.
 - Drucker- und Unterschrift-Symbol (`ICON_PRINTER`, `ICON_SIGN`) auf dieselbe
   vergrößerte Darstellung (neue CSS-Klasse `.ico-lg`, 1.55em statt 1em)
-  gebracht, damit alle vier Aktionssymbole in „Aktuell in Ausgabe“
+  gebracht, damit alle vier Aktionssymbole in „Aktuell in Ausgabe"
   größenkonsistent wirken.
 
 ## 2026-08-10 — Schülerclient: Unterschriften-Bestätigung entfernt, Scan-View/Statuszeilen-Layout überarbeitet
@@ -1463,14 +1487,14 @@ bisher verhielt sich „Selbstauslöser" für sie provisorisch wie „Automatisc
 ## 2026-08-09 — Betreuerauslöser-Hinweis im Schülerclient
 
 - Im Schülerclient zeigt der Betreuerauslöser jetzt den Hinweis „Bitte wende
-  dich an einen Betreuer, damit dein Leihschein gedruckt werden kann.“
+  dich an einen Betreuer, damit dein Leihschein gedruckt werden kann."
 - Der Schülerclient bietet in diesem Modus keinen eigenen Druckbutton mehr;
   der Druck wird über den Betreuer/Host ausgelöst. Die Bestätigung „Leihschein
-  erhalten“ nach einem erfolgreichen Druck bleibt davon unberührt.
+  erhalten" nach einem erfolgreichen Druck bleibt davon unberührt.
 
 ## 2026-08-09 — Aktionssymbole und Modus-B-Leihscheinaktionen
 
-- **Host:** Die Aktionen in „Aktuell in Ausgabe“ verwenden jetzt Haken-,
+- **Host:** Die Aktionen in „Aktuell in Ausgabe" verwenden jetzt Haken-,
   Drucker- und geometrisches Link-trennen-Symbol; die Beschriftungen bleiben
   über Tooltip und `aria-label` erreichbar. Im Unterschriftenmodus erscheint
   zusätzlich das Signatur-Symbol.
@@ -1478,15 +1502,15 @@ bisher verhielt sich „Selbstauslöser" für sie provisorisch wie „Automatisc
   anzeigen und den Auftrag als `student` statt als Host-/Helferauftrag einreihen.
   Der Host-Pfad für diese Aktion verwendet dieselbe Rollen-/Statuslogik.
 - **Unterschriftenmodus:** Der Schülerclient erhält wie der Helferclient einen
-  „Leihschein unterschrieben“-Button. Der Abschluss ist serverseitig auf die
+  „Leihschein unterschrieben"-Button. Der Abschluss ist serverseitig auf die
   aktivierte Klassenoption und den echten Unterschriftenmodus begrenzt.
 
 ## 2026-08-09 — Modus-B-QR-Steuerung verfeinert
 
-- Der Host nennt den Verbindungs-QR jetzt „QR für QR-Display anzeigen“.
+- Der Host nennt den Verbindungs-QR jetzt „QR für QR-Display anzeigen".
 - Verbundene, autorisierte QR-Displays und Lehrkraft-Ansichten verwenden zum
   Trennen ein einheitliches X-Symbol.
-- Die Pause-/Fortsetzen-Aktion steht rechts getrennt von „Ausgabe schließen“
+- Die Pause-/Fortsetzen-Aktion steht rechts getrennt von „Ausgabe schließen"
   und verwendet Pause-/Play-Symbole.
 - Bei pausierter Anzeige kann der Host die QR-Anzeige für genau drei neue
   Schüler-Scans freischalten; danach pausiert sie automatisch wieder.
@@ -1502,12 +1526,12 @@ bisher verhielt sich „Selbstauslöser" für sie provisorisch wie „Automatisc
   Host-Ansicht aus. Das iPad bleibt verbunden; ein Host-Reload zeigt den Code
   wieder und erzeugt keinen unerwarteten Reconnect mit neuem Code.
 - **Verbundene iPads:** Freigeschaltete und wartende, verbundene iPads bleiben
-  in der Liste sichtbar. Über „Trennen“ wird die Display-Session beendet; die
+  in der Liste sichtbar. Über „Trennen" wird die Display-Session beendet; die
   QR-Seite reconnectet dabei nicht automatisch, sondern muss bewusst neu
   geladen werden.
-- **Pause:** Neben „Ausgabe schließen“ pausiert „QR pausieren“ die QR-Anzeige
+- **Pause:** Neben „Ausgabe schließen" pausiert „QR pausieren" die QR-Anzeige
   auf allen autorisierten iPads. QR-Code und URL werden durch einen Hinweis
-  ersetzt; der Button wird zu „QR fortsetzen“.
+  ersetzt; der Button wird zu „QR fortsetzen".
 
 ## 2026-08-09 — Security review of Modus B and public routes
 
@@ -1526,22 +1550,22 @@ bisher verhielt sich „Selbstauslöser" für sie provisorisch wie „Automatisc
 ## 2026-08-09 — Ladezustand von Host und Client synchronisiert
 
 - **Host:** Aktive Schüler zeigen während des Bücher- und Worker-Ladevorgangs
-  den Status „Lädt“ statt „Aktiv“ oder eines vorzeitigen X/Y-Fortschritts.
+  den Status „Lädt" statt „Aktiv" oder eines vorzeitigen X/Y-Fortschritts.
 - **Helferclient:** Der Schüler erscheint direkt als aktiv mit Helfernamen;
   der X/Y-Fortschritt wird nach abgeschlossenem Ladevorgang ergänzt.
 
-## 2026-08-09 — Status in „Aktuell in Ausgabe“ synchronisiert
+## 2026-08-09 — Status in „Aktuell in Ausgabe" synchronisiert
 
-- **Host:** Die Statusanzeige in der Kachel „Aktuell in Ausgabe“ verwendet
+- **Host:** Die Statusanzeige in der Kachel „Aktuell in Ausgabe" verwendet
   jetzt dieselben dynamischen Werte wie die Klassenliste: Fortschritt mit
-  „ohne Mjb“/„gesamt“ sowie die Leihschein-Status „wartet“, „druckt“,
-  „gedruckt“ und „Unterschrift“.
+  „ohne Mjb"/„gesamt" sowie die Leihschein-Status „wartet", „druckt",
+  „gedruckt" und „Unterschrift".
 - **Wartbarkeit:** Die gemeinsame Statuslogik liegt nur noch an einer Stelle,
   damit beide Ansichten synchron bleiben.
 
-## 2026-08-09 — Status in „Aktuell in Ausgabe“
+## 2026-08-09 — Status in „Aktuell in Ausgabe"
 
-- **Host:** Die Kachel „Aktuell in Ausgabe“ zeigt neben der Klasse linksbündig
+- **Host:** Die Kachel „Aktuell in Ausgabe" zeigt neben der Klasse linksbündig
   den Schülerstatus und — sofern ein Helfer zugeordnet ist — den Helfernamen
   rechtsbündig in einer gemeinsamen Zeile. Status und Helfer verwenden dabei
   dieselben Schrifteigenschaften.
@@ -1565,7 +1589,7 @@ bisher verhielt sich „Selbstauslöser" für sie provisorisch wie „Automatisc
 
 - **UI:** In der Aktiv-Gruppe entfällt die leere Aktionsspalte ohne Druck- oder
   Unterschriftbutton. Das Druckersymbol steht dadurch mit normalem Abstand vor
-  dem „Aufrufen“-Button.
+  dem „Aufrufen"-Button.
 - **UI:** Während des Unterschriftenstatus wird die X/Y-Fortschrittsanzeige
   ausgeblendet; der Unterschriftbutton bleibt als Aktion sichtbar.
 - **Tests:** `uv run pytest -q` erfolgreich.
@@ -2003,24 +2027,24 @@ bisher verhielt sich „Selbstauslöser" für sie provisorisch wie „Automatisc
 
 ## 2026-08-06 — Schülerclient-Leihscheinmodus nach dem Druck
 
-- Ist in der Klasse „Leihschein unterschreiben“ aktiviert, bleibt der Modus-B-
+- Ist in der Klasse „Leihschein unterschreiben" aktiviert, bleibt der Modus-B-
   Schüler nach abgeschlossenem Leihschein-Druck offen und wechselt in einen
   eigenen Leihscheinmodus.
 - Der Schüler wird aufgefordert, den Leihschein zu unterschreiben und ihn bei
   einem Betreuer abzugeben. Ist zusätzlich „Leihschein wird vom Lehrer
-  eingesammelt“ aktiv, lautet das Ziel „beim Lehrer“.
+  eingesammelt" aktiv, lautet das Ziel „beim Lehrer".
 - Der Modus bleibt bei einem Reconnect erhalten. Der Host schließt den Schüler
-  nach der physischen Übergabe wie bisher über „Abschließen“; ohne aktivierte
+  nach der physischen Übergabe wie bisher über „Abschließen"; ohne aktivierte
   Unterschrift bleibt der automatische Abschluss nach dem Druck unverändert.
 - Tests decken beide Übergabeziele, den offenen Session-Zustand und den
   Reconnect-Payload ab; keine IServ-Schreibzugriffe.
 
 ## 2026-08-06 — Schülerclient-Druckmodus: Überschrift und Status getrennt
 
-- Der Druckmodus zeigt dauerhaft „Leihschein Drucken“ als Überschrift.
+- Der Druckmodus zeigt dauerhaft „Leihschein Drucken" als Überschrift.
 - Die Erklärung für den nächsten Schritt steht getrennt über dem dynamischen
   Druckstatus; der Status bleibt an seiner bisherigen Stelle.
-- Die blaue „Status“-Beschriftung und blaue Hervorhebung wurden entfernt. Der
+- Die blaue „Status"-Beschriftung und blaue Hervorhebung wurden entfernt. Der
   Status bleibt als neutral abgegrenzter Bereich sichtbar; der optionale
   Druckbutton folgt darunter.
 - Verifiziert mit `node --check web/student.js` und `git diff --check`; keine
@@ -2030,7 +2054,7 @@ bisher verhielt sich „Selbstauslöser" für sie provisorisch wie „Automatisc
 
 - Serverseitig gelieferte Drucker-Warnmeldungen werden vor der Anzeige am
   Satzanfang großgeschrieben; das gilt auch für weitere Sätze innerhalb der
-  Meldung, etwa „Bitte überprüfe dies“.
+  Meldung, etwa „Bitte überprüfe dies".
 
 ## 2026-08-06 — Druckfehler verweist auf den Betreuer
 
@@ -2040,7 +2064,7 @@ bisher verhielt sich „Selbstauslöser" für sie provisorisch wie „Automatisc
 
 ## 2026-08-06 — Druckbutton nach Selbstauslöser ausblenden
 
-- Beim Absenden des Druckauftrags wird der Button „Leihschein drucken“ im
+- Beim Absenden des Druckauftrags wird der Button „Leihschein drucken" im
   Schülerclient sofort ausgeblendet.
 - Bei einem Druckfehler bleibt der Button verborgen; der Schüler soll sich bei
   einem Betreuer melden.
@@ -2092,9 +2116,9 @@ bisher verhielt sich „Selbstauslöser" für sie provisorisch wie „Automatisc
 ## 2026-08-06 — Schülerclient: Betreuerauslöser serverseitig abgesichert
 
 - Der Schülerclient verarbeitet beim Eintritt in den Druckmodus die Einstellung
-  der zugehörigen Klasse: „Automatisch“ druckt sofort, „Schülerauslöser“ zeigt
-  den Druckbutton, „Betreuerauslöser“ verweist an den Betreuer.
-- „Barcode“ bleibt als auswählbare Einstellung vorbereitet, hat aber weiterhin
+  der zugehörigen Klasse: „Automatisch" druckt sofort, „Schülerauslöser" zeigt
+  den Druckbutton, „Betreuerauslöser" verweist an den Betreuer.
+- „Barcode" bleibt als auswählbare Einstellung vorbereitet, hat aber weiterhin
   keine Funktion.
 - Der Schüler-WebSocket weist print_request im Betreuerauslöser-Modus ab; der
   Betreuer-/Host-Druckweg bleibt dafür zuständig. Der vorbereitete Barcode-
@@ -2111,10 +2135,10 @@ bisher verhielt sich „Selbstauslöser" für sie provisorisch wie „Automatisc
 - Verifiziert mit 385 pytest-Tests, Ruff und `node --check web/*.js`; keine
   IServ-Schreibzugriffe.
 
-## 2026-08-05 — Teacher-Kachel „Leihschein abgegeben“ verbreitert
+## 2026-08-05 — Teacher-Kachel „Leihschein abgegeben" verbreitert
 
-- Der optionale Zähler heißt jetzt vollständig „Leihschein abgegeben“ statt
-  nur „abgegeben“.
+- Der optionale Zähler heißt jetzt vollständig „Leihschein abgegeben" statt
+  nur „abgegeben".
 - Die Kachel ist bei aktivierter Leihschein-Sammlung auf Desktop-Viewports
   doppelt so breit wie die vier Statuskacheln; mobil spannt sie beide Spalten
   der Zählerzeile.
@@ -2123,7 +2147,7 @@ bisher verhielt sich „Selbstauslöser" für sie provisorisch wie „Automatisc
 
 ## 2026-08-05 — Teacher-Statuszähler mobil als Raster
 
-- Die Statuszähler „abgeschlossen“, „aktiv“, „offen“ und „übersprungen“ stehen
+- Die Statuszähler „abgeschlossen", „aktiv", „offen" und „übersprungen" stehen
   auf mobilen Viewports jetzt in einem 2×2-Raster statt in einer überfüllten
   Reihe. Bei aktivierter Leihschein-Sammlung wird der fünfte Zähler ebenfalls
   responsiv einsortiert.
@@ -2136,8 +2160,8 @@ bisher verhielt sich „Selbstauslöser" für sie provisorisch wie „Automatisc
 
 - Jede Schülerzeile der Teacher-Ansicht ist jetzt in eine Kopfzeile mit Name,
   Statuspunkt und rechtem Wisch-Chevron sowie eine eigene Status-/Aktionszeile
-  geteilt. Dadurch bleiben Statuslabels wie „Ausgabe abgeschlossen“ und
-  „Übersprungen / abwesend“ als vollständige Wörter erhalten.
+  geteilt. Dadurch bleiben Statuslabels wie „Ausgabe abgeschlossen" und
+  „Übersprungen / abwesend" als vollständige Wörter erhalten.
 - Status- und Aktionsbereich reagieren weiterhin auf schmale Viewports; die
   Rücknahmeaktion bleibt erreichbar, während die bestehende Links-Wisch-Geste
   und die rechte Chevron-Position unverändert bleiben (`web/teacher.html`,

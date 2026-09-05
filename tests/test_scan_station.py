@@ -673,7 +673,7 @@ def test_end_student_done_releases_station(ctx):
     assert "released" in types and types[-1] == "ready"
     # Zettel-Code bleibt (im Gegensatz zum Trennen) bestehen — Re-Scan wird
     # via `resolve_station_code` am `done`-Status abgelehnt, nicht am Code.
-    assert state.student_id_for_station_code(state.station_code_by_student[1]) == 1
+    assert state.student_id_for_station_code(state.slip_codes.active_code_for(1)) == 1
     assert state.find_student(1).status == "done"
 
 
@@ -944,7 +944,7 @@ def test_activate_station_student_marks_active_without_printing(ctx):
     state.iserv = _FakeIServForPrint()
     result = asyncio.run(sessions.activate_station_student(state, 1))
     assert result["ok"] is True
-    assert result["code"] == state.station_code_by_student[1]
+    assert result["code"] == state.slip_codes.active_code_for(1)
     assert student.status == "active"
     assert student.station_zettel_printed is True
     assert student.books_total == 1

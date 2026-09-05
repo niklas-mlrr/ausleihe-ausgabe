@@ -260,7 +260,7 @@ seine Bücher wie sonst am Handy. Nach 30 s ohne Aktivität fällt die Station a
   `AppState.invalidate_station_code` — der Zettel wird an der Station nicht
   mehr angenommen, und eine laufende Stationsanmeldung wird zugleich gelöst
   (`release_station_student`). Der entwertete Code bleibt aber unter
-  `AppState.station_last_code_by_student` als „letzter Code" gemerkt. Beim
+  `AppState.slip_codes.last_by_student` als „letzter Code" gemerkt. Beim
   nächsten „Erstellen"/„Erstellen und Drucken" für denselben Schüler zeigt
   der Host-Druckdialog eine Checkbox „Alten Code (‹Code›) reaktivieren",
   **standardmäßig angehakt** — reaktiviert genau diesen Code (der alte
@@ -950,6 +950,28 @@ Zeilen-Kommentare und alle `# Abgesichert: tests/…`-Zeiger bleiben am Code.
   Leihschein korrigieren": ersetzt beim Drucken den (teils falschen) Klassen-Code
   hinter „Klasse " auf dem IServ-Leihschein durch die echte Klasse des Schülers
   aus dem Serverstate. Rein lokale PDF-Bearbeitung, kein IServ-Write. `False` = aus.
+
+### `StationSlipCodes`
+
+- **Warum überhaupt eine eigene Klasse** — die drei Dicts (`by_code`,
+  `by_student`, `last_by_student`) sind das einzige Feld-Bündel auf `AppState`,
+  das die Gruppierungs-Schwelle von ~25 Aufrufstellen unterschreitet: 23 Stellen,
+  davon nur vier außerhalb von `server/state.py`. Modus B (148 Stellen) und
+  Drucker/Display (338) wurden am 2026-09-05 gemessen und bewusst flach
+  gelassen — dort wäre eine Gruppierung eine Umbenennung ohne Lesbarkeitsgewinn.
+  Die vier Methoden auf `AppState` (`allocate_station_code`,
+  `invalidate_station_code`, `station_reactivate_code`,
+  `student_id_for_station_code`) bleiben als Weiterleitungen bestehen: sie haben
+  42 Aufrufstellen außerhalb des Moduls und sind die gewachsene öffentliche
+  Fläche.
+- **`by_code` / `by_student`** — die beiden Richtungen desselben aktiven Codes;
+  sie werden nur gemeinsam in `allocate`/`invalidate` verändert. Codes werden
+  innerhalb einer Server-Laufzeit nie recycelt, damit ein alter herumliegender
+  Zettel nicht plötzlich einen anderen Schüler lädt (Abgesichert:
+  `tests/test_scan_station.py::test_station_codes_are_never_recycled`).
+- **`last_by_student`** — überlebt eine Entwertung und ist die Datengrundlage
+  der Checkbox „Alten Code reaktivieren" im Host-Druckdialog; Details oben im
+  Scan-Stations-Abschnitt.
 
 ### `IservCaches`
 

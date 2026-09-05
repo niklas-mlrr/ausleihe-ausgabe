@@ -1296,7 +1296,7 @@ async def _handle_drucker_scan(state, hub, scanner: PrinterScannerSession, code:
             book = None
         if book is not None:
             loaned_to_id = book.get("loaned_to_id")
-            if loaned_to_id is not None and loaned_to_id in state.station_code_by_student:
+            if loaned_to_id is not None and state.slip_codes.has_active_code(loaned_to_id):
                 student_id = loaned_to_id
 
     qs = state.find_student(student_id) if student_id is not None else None

@@ -758,6 +758,110 @@ class IservCaches:
 
 
 @dataclass
+class StationSlipCodes:
+    """Die vierstelligen Zettel-Codes der Scan-Station — Vergabe, Entwertung
+    und Reaktivierung. Zugriff ausschließlich über `state.slip_codes.<name>`.
+
+    Die drei Dicts hängen so eng zusammen, dass jede Änderung an einem die
+    beiden anderen mitzieht (`allocate`/`invalidate`); sie lagen deshalb früher
+    als drei Einzelfelder auf `AppState` und sind hier zusammengezogen. Die vier
+    Methoden auf `AppState` bleiben als dünne Weiterleitungen bestehen — sie
+    sind die gewachsene Aufruffläche (42 Stellen außerhalb dieses Moduls) und
+    hätten von einer Umbenennung nichts gewonnen.
+
+    Ein Schüler behält seinen Code über beliebig viele Nachdrucke hinweg
+    (derselbe Zettel bleibt gültig) — nur die Bücherliste auf dem Zettel wird
+    bei jedem Druck frisch von IServ geholt (s.
+    `sessions._load_and_activate_station_student`).
+
+    Codes werden innerhalb einer Server-Laufzeit NIE recycelt — auch nicht,
+    wenn der Schüler fertig ist. Sonst könnte ein alter, noch herumliegender
+    Zettel plötzlich einen anderen Schüler laden. Der Vorrat (10 000) ist
+    gegenüber einem Ausgabetag reichlich bemessen.
+    """
+
+    # Aktiv vergebene Codes: Code -> student_id.
+    by_code: dict[str, int] = field(default_factory=dict)
+    # Rückrichtung des aktiven Codes: student_id -> Code.
+    by_student: dict[int, str] = field(default_factory=dict)
+    # Letzter (auch entwerteter) Code je Schüler — überlebt eine Entwertung
+    # (`invalidate`, s. „Trennen" am Host) und dient dort als Vorschlag zur
+    # Reaktivierung beim nächsten „Erstellen" (`allocate(reactivate_old=True)`).
+    # Wird bei jeder Neuvergabe überschrieben, zeigt also immer auf den zuletzt
+    # vergebenen Code, egal ob reaktiviert oder frisch gezogen.
+    last_by_student: dict[int, str] = field(default_factory=dict)
+
+    def active_code_for(self, student_id: int) -> str | None:
+        """Aktiver Zettel-Code des Schülers; `None` = keiner vergeben (oder
+        entwertet). Der Wahrheitstest darauf ist zugleich die Erkennung
+        „Schüler läuft über die Scan-Station"."""
+        return self.by_student.get(student_id)
+
+    def has_active_code(self, student_id: int) -> bool:
+        """Ob der Schüler gerade einen gültigen Zettel-Code hat. Zugleich die
+        Erkennung „Schüler läuft über die Scan-Station" — sie überlebt ein
+        zwischenzeitliches Trennen nicht (dafür ist `last_by_student` da)."""
+        return student_id in self.by_student
+
+    def allocate(self, student_id: int, *, reactivate_old: bool = True) -> str:
+        """Vierstelligen Zettel-Code des Schülers liefern — vorhandenen wieder,
+        sonst einen neuen ziehen. Damit druckt ein Nachdruck garantiert
+        denselben Code (der erste Zettel bleibt gültig).
+
+        Wurde der Code des Schülers zuvor entwertet (`invalidate`, „Trennen" am
+        Host) und `reactivate_old` ist wahr (Default — Checkbox „Alten Code
+        reaktivieren" im Host-Druckdialog), lebt genau dieser alte Code wieder
+        auf, statt einen neuen zu ziehen — ein bereits gedruckter Zettel bleibt
+        dann gültig. Bei `reactivate_old=False` (Checkbox abgewählt) wird immer
+        ein frischer Code gezogen.
+
+        Ist der Vorrat erschöpft (theoretisch: 10 000 vergebene Codes in einer
+        Laufzeit), wird `RuntimeError` geworfen statt einen Code doppelt zu
+        vergeben — ein doppelter Code würde den falschen Schüler laden.
+        """
+        existing = self.by_student.get(student_id)
+        if existing is not None:
+            return existing
+        if reactivate_old:
+            old = self.last_by_student.get(student_id)
+            if old is not None and old not in self.by_code:
+                self.by_code[old] = student_id
+                self.by_student[student_id] = old
+                return old
+        if len(self.by_code) >= 10_000:
+            raise RuntimeError("Keine freien Scan-Station-Codes mehr — Server neu starten")
+        while True:
+            code = f"{secrets.randbelow(10_000):04d}"
+            if code not in self.by_code:
+                break
+        self.by_code[code] = student_id
+        self.by_student[student_id] = code
+        self.last_by_student[student_id] = code
+        return code
+
+    def invalidate(self, student_id: int) -> None:
+        """Aktiven Zettel-Code eines Schülers entwerten („Trennen" am Host) —
+        die Station nimmt ihn danach nicht mehr an. Bleibt in
+        `last_by_student` als Vorschlag fuer eine Reaktivierung beim nächsten
+        „Erstellen" gemerkt. Idempotent (kein aktiver Code = No-op)."""
+        code = self.by_student.pop(student_id, None)
+        if code is not None:
+            self.by_code.pop(code, None)
+
+    def reactivatable_code_for(self, student_id: int) -> str | None:
+        """Zuletzt entwerteter Zettel-Code eines Schülers, den ein „Erstellen"
+        reaktivieren könnte — nur solange gerade KEIN Code aktiv ist (sonst ist
+        er ohnehin schon gültig, s. `_queue_student_as_dict`)."""
+        if student_id in self.by_student:
+            return None
+        return self.last_by_student.get(student_id)
+
+    def student_id_for(self, code: str) -> int | None:
+        """Schüler zu einem gescannten Zettel-Code; `None` = unbekannt."""
+        return self.by_code.get((code or "").strip())
+
+
+@dataclass
 class ClassContext:
     """Eine parallel bedienbare Klasse („Klassen-Tab" am Host).
 
@@ -911,25 +1015,10 @@ class AppState:
         # (= scanner_id). Aufbau/Lebensdauer wie die Drucker-Displays.
         self.printer_scanners: dict[str, PrinterScannerSession] = {}
         self.banned_printer_scanner_tokens: set[str] = set()
-        # Vierstellige Zettel-Codes der Scan-Station: Code -> student_id und
-        # die Rückrichtung. Ein Schüler behält seinen Code über beliebig viele
-        # Nachdrucke hinweg (derselbe Zettel bleibt gültig) — nur die
-        # Bücherliste auf dem Zettel wird bei jedem Druck frisch von IServ
-        # geholt (s. `sessions._load_and_activate_station_student`).
-        #
-        # Codes werden innerhalb einer Server-Laufzeit NIE recycelt — auch
-        # nicht, wenn der Schüler fertig ist. Sonst könnte ein alter, noch
-        # herumliegender Zettel plötzlich einen anderen Schüler laden. Der
-        # Vorrat (10 000) ist gegenüber einem Ausgabetag reichlich bemessen.
-        self.station_codes: dict[str, int] = {}
-        self.station_code_by_student: dict[int, str] = {}
-        # Letzter (auch entwerteter) Zettel-Code je Schüler — überlebt eine
-        # Entwertung (`invalidate_station_code`, s. „Trennen" am Host) und
-        # dient dort als Vorschlag zur Reaktivierung beim nächsten „Erstellen"
-        # (`allocate_station_code(reactivate_old=True)`). Wird bei jeder
-        # Neuvergabe überschrieben, zeigt also immer auf den zuletzt
-        # vergebenen Code, egal ob reaktiviert oder frisch gezogen.
-        self.station_last_code_by_student: dict[int, str] = {}
+        # Die drei Zettel-Code-Dicts der Scan-Station (früher einzelne Felder
+        # auf AppState) — siehe StationSlipCodes. Über state.slip_codes.*
+        # ansprechbar; die vier Methoden unten leiten dorthin weiter.
+        self.slip_codes = StationSlipCodes()
         # Monotone Startzeit DIESES Serverlaufs. Einzige Verwendung: die
         # Persistenz-Verwerfungsregel für Helfer/Drucker-Displays/Scan-
         # Stationen (s. `sessions.persist_*`) — ein nie verbundener Eintrag
@@ -944,62 +1033,20 @@ class AppState:
     # -----------------------------------------------------------------
 
     def allocate_station_code(self, student_id: int, *, reactivate_old: bool = True) -> str:
-        """Vierstelligen Zettel-Code des Schülers liefern — vorhandenen wieder,
-        sonst einen neuen ziehen. Damit druckt ein Nachdruck garantiert
-        denselben Code (der erste Zettel bleibt gültig).
-
-        Wurde der Code des Schülers zuvor entwertet (`invalidate_station_code`,
-        „Trennen" am Host) und `reactivate_old` ist wahr (Default — Checkbox
-        „Alten Code reaktivieren" im Host-Druckdialog), lebt genau dieser alte
-        Code wieder auf, statt einen neuen zu ziehen — ein bereits gedruckter
-        Zettel bleibt dann gültig. Bei `reactivate_old=False` (Checkbox
-        abgewählt) wird immer ein frischer Code gezogen.
-
-        Ist der Vorrat erschöpft (theoretisch: 10 000 vergebene Codes in einer
-        Laufzeit), wird `RuntimeError` geworfen statt einen Code doppelt zu
-        vergeben — ein doppelter Code würde den falschen Schüler laden.
-        """
-        existing = self.station_code_by_student.get(student_id)
-        if existing is not None:
-            return existing
-        if reactivate_old:
-            old = self.station_last_code_by_student.get(student_id)
-            if old is not None and old not in self.station_codes:
-                self.station_codes[old] = student_id
-                self.station_code_by_student[student_id] = old
-                return old
-        if len(self.station_codes) >= 10_000:
-            raise RuntimeError("Keine freien Scan-Station-Codes mehr — Server neu starten")
-        while True:
-            code = f"{secrets.randbelow(10_000):04d}"
-            if code not in self.station_codes:
-                break
-        self.station_codes[code] = student_id
-        self.station_code_by_student[student_id] = code
-        self.station_last_code_by_student[student_id] = code
-        return code
+        """Weiterleitung auf `slip_codes.allocate` — dort steht die Erklärung."""
+        return self.slip_codes.allocate(student_id, reactivate_old=reactivate_old)
 
     def invalidate_station_code(self, student_id: int) -> None:
-        """Aktiven Zettel-Code eines Schülers entwerten („Trennen" am Host) —
-        die Station nimmt ihn danach nicht mehr an. Bleibt in
-        `station_last_code_by_student` als Vorschlag für eine Reaktivierung
-        beim nächsten „Erstellen" gemerkt. Idempotent (kein aktiver Code =
-        No-op)."""
-        code = self.station_code_by_student.pop(student_id, None)
-        if code is not None:
-            self.station_codes.pop(code, None)
+        """Weiterleitung auf `slip_codes.invalidate` — dort steht die Erklärung."""
+        self.slip_codes.invalidate(student_id)
 
     def station_reactivate_code(self, student_id: int) -> str | None:
-        """Zuletzt entwerteter Zettel-Code eines Schülers, den ein „Erstellen"
-        reaktivieren könnte — nur solange gerade KEIN Code aktiv ist (sonst ist
-        er ohnehin schon gültig, s. `_queue_student_as_dict`)."""
-        if student_id in self.station_code_by_student:
-            return None
-        return self.station_last_code_by_student.get(student_id)
+        """Weiterleitung auf `slip_codes.reactivatable_code_for`."""
+        return self.slip_codes.reactivatable_code_for(student_id)
 
     def student_id_for_station_code(self, code: str) -> int | None:
-        """Schüler zu einem gescannten Zettel-Code; `None` = unbekannt."""
-        return self.station_codes.get((code or "").strip())
+        """Weiterleitung auf `slip_codes.student_id_for`."""
+        return self.slip_codes.student_id_for(code)
 
     # -----------------------------------------------------------------
     # Kontext-Verwaltung
@@ -1154,7 +1201,7 @@ class AppState:
                 else station.station_id[:6]
             )
         station_code = (
-            self.station_code_by_student.get(student.student_id)
+            self.slip_codes.active_code_for(student.student_id)
             if include_station_code else None
         )
         station_reactivate_code = (

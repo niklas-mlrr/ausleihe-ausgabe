@@ -352,7 +352,7 @@ async def _mark_slip_printed(
     # ein zwischenzeitliches Trennen von der Station); greift unabhängig vom
     # `slip_trigger`, der den Druck ausgelöst hat (Automatisch/Betreuer-/
     # Schülerauslöser über den Drucker-Scanner).
-    if student_id in state.station_code_by_student:
+    if state.slip_codes.has_active_code(student_id):
         done_signed, _done_collected = slip_signature_options_for(state, student_id)
         if done_signed:
             student.slip_signing = True
