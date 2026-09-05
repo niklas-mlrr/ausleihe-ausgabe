@@ -8,6 +8,47 @@
 > `docs/phase4_modus_b_2026-06-15.md`, `docs/hardening_2026-06-18.md`) und
 > werden hier nur verlinkt, nicht dupliziert.
 
+## 2026-09-05 — Zwei rote CI-Läufe behoben, pytest-timeout, AppState-Gruppierung abgelehnt
+
+Die am selben Tag frisch eingerichtete CI war im ersten Lauf rot — genau dafür
+ist sie da. Beide Befunde waren echte Fehler, keine Einrichtungs-Kosmetik.
+
+- **~35 Tests, beide Linux-Jobs**: `state.state_snapshot()` importiert
+  `get_config` **pro Aufruf lokal** aus `server.config` (`state.py:1249`) —
+  die Fixtures patchten `get_config` nur in den Route-Modulen, wo jedes Modul
+  seinen eigenen `from`-Import auflöst. Ohne `.env` lief dadurch der echte
+  `load_config()` und brach mit `SystemExit(ISERV_DOMAIN fehlt)`. Lokal deckte
+  die vorhandene `.env` das still zu — deshalb „nicht reproduzierbar".
+  ⚠️ Die in den CI-Logs prominenten `AttributeError: '_FakeIServForClasses'
+  object has no attribute 'get_student_info'` waren **Captured-Logs bereits
+  gefangener, nicht fataler** Fehler — eine falsche Fährte, die zunächst als
+  Ursache notiert worden war. Gepatcht in `test_api_guards.py`,
+  `test_app_runtime.py`, `test_booklist_empty_endpoint.py` (dort zusätzlich
+  `_deps.get_config` für `require_host`) und `test_class_book_order.py`.
+- **`pytest-timeout`** ergänzt (`--timeout=300 --timeout-method=thread`),
+  Werte und Begründung gespiegelt von `sba-dashboard`: die Suite startet
+  Threads und `multiprocessing`-spawn-Kinder, ein Hänger verbrannte bisher
+  still die vollen 30 CI-Minuten.
+
+**Bewusst nicht gemacht — AppState-Gruppierung (Modus-B + Drucker/Display).**
+Die Regel war: über ~25 Aufrufstellen bleibt ein Cluster flach. Gemessen:
+
+| Cluster | Aufrufstellen |
+|---------|---------------|
+| Modus B (9 Attribute) | **148** (davon `student_sessions` 48) |
+| Drucker/Display (10 Attribute) | **338** (davon `print_queue` 120, `printer_displays` 78, `scan_stations` 54) |
+
+Beide liegen um ein Vielfaches über der Grenze. Anders als `RuntimeSettings`
+(5 Toggles) und `IservCaches` (5 Caches), die sich lohnten, sind das hier
+keine Randnotizen am State, sondern **die zentrale Arbeitsfläche der App** —
+eine Umbenennung dieser Größe ist reines Risiko ohne Lesbarkeitsgewinn.
+💡 Einzige tragfähige Teil-Extraktion für später: das Zettel-Code-Trio
+(`station_codes`, `station_code_by_student`, `station_last_code_by_student`)
+mit zusammen 23 Stellen, davon nur **4 außerhalb** von `state.py` — es hat mit
+`allocate_station_code`/`invalidate_station_code`/`station_reactivate_code`/
+`student_id_for_station_code` bereits vier eigene Methoden und ist damit
+faktisch schon ein Objekt ohne Klasse.
+
 ## 2026-09-05 — server/sessions.py in neun Module aufgeteilt (Welle 6)
 
 Reiner Struktur-Refactor, keine Verhaltensänderung: `server/sessions.py`
