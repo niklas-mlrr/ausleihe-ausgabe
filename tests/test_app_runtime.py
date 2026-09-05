@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from starlette.testclient import TestClient
 
+import server.config as config_module
 from server.app import create_app
 from server.config import Config
 from server.routes import _deps
@@ -39,6 +40,10 @@ def test_http_request_is_bound_to_its_own_app_runtime(monkeypatch):
         host_password="secret",
     )
     monkeypatch.setattr(_deps, "get_config", lambda: cfg)
+    # state.state_snapshot() importiert get_config pro Aufruf lokal aus
+    # server.config — der _deps-Patch allein würde ohne .env in load_config
+    # enden (SystemExit in CI).
+    monkeypatch.setattr(config_module, "get_config", lambda: cfg)
 
     client = TestClient(app)
     client.cookies.set("session_id", "local-sid")

@@ -10,7 +10,9 @@ und den Repush-Fanout an betroffene Helfer-/Schüler-Sessions.
 
 from __future__ import annotations
 
+import server.config as config_module
 import server.routes.booklists as booklists_routes
+from server.config import Config
 from server.routes import _deps as deps_routes
 from server.state import AppState, HelperSession, QueueStudent, ScanStationSession
 
@@ -53,9 +55,22 @@ def _ctx(monkeypatch, catalog):
     state.add_host_session("sid")
     state.iserv = _FakeIserv(catalog)
     hub = _FakeHub()
+    # Zwei get_config-Ablösungen: require_host nutzt den _deps-eigenen
+    # from-Import; `state_snapshot()` importiert get_config pro Aufruf lokal
+    # aus server.config. Ohne beide Patches läuft der echte load_config() und
+    # bricht ohne .env mit SystemExit (CI; lokal still von der echten .env
+    # gedeckt).
+    cfg = Config(
+        iserv_domain="example.org",
+        iserv_username="u",
+        iserv_password="p",
+        host_password="secret",
+    )
     monkeypatch.setattr(booklists_routes, "get_state", lambda: state)
     monkeypatch.setattr(booklists_routes, "get_hub", lambda: hub)
     monkeypatch.setattr(deps_routes, "get_state", lambda: state)
+    monkeypatch.setattr(deps_routes, "get_config", lambda: cfg)
+    monkeypatch.setattr(config_module, "get_config", lambda: cfg)
     return state, hub
 
 

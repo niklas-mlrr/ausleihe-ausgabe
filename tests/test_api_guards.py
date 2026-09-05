@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import pytest
 
+import server.config as config_module
 import server.routes.api as api
 import server.routes.auth as auth_routes
 import server.routes.booklists as booklists_routes
@@ -105,6 +106,11 @@ def ctx(monkeypatch):
             monkeypatch.setattr(mod, "get_config", lambda: cfg)
         if hasattr(mod, "get_hub"):
             monkeypatch.setattr(mod, "get_hub", lambda: hub)
+    # `state.state_snapshot()` importiert `get_config` pro Aufruf lokal aus
+    # `server.config` (state.py) — der Route-Modul-Patch oben greift dafür
+    # nicht. Ohne diesen Patch läuft der echte `load_config()` und bricht ohne
+    # .env mit SystemExit (CI) — lokal bloß still von der echten .env gedeckt.
+    monkeypatch.setattr(config_module, "get_config", lambda: cfg)
     return state, cfg, hub
 
 

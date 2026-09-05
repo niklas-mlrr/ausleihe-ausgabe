@@ -198,7 +198,19 @@ def test_reset_booklist_orders_clears_all_grades():
     assert st.caches.book_orders_by_grade == {}
 
 
-def test_snapshot_includes_book_order():
+def test_snapshot_includes_book_order(monkeypatch):
+    # state_snapshot() importiert get_config pro Aufruf lokal aus server.config
+    # — ohne Patch bricht load_config() ohne .env mit SystemExit (CI).
+    import server.config as config_module
+    from server.config import Config
+
+    cfg = Config(
+        iserv_domain="example.org",
+        iserv_username="u",
+        iserv_password="p",
+        host_password="secret",
+    )
+    monkeypatch.setattr(config_module, "get_config", lambda: cfg)
     st = AppState()
     ctx = st.open_context("9a")
     ctx.book_order = ["A", "B"]
