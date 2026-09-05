@@ -15,7 +15,12 @@ dependencies = [
 ]
 
 [dependency-groups]
-dev = ["pytest>=8.0", "pytest-cov>=5.0", "httpx2>=0.28", "ruff>=0.8,<1"]
+# pytest-timeout (Begruendung s. sba-dashboard/pyproject.toml): die Suite
+# startet Threads und multiprocessing-"spawn"-Kinder — ein hängender Lauf
+# endet ohne Zeitgrenze nie von selbst und verbraucht in der CI die vollen
+# 30 Minuten ohne eine Zeile Ausgabe.
+dev = ["pytest>=8.0", "pytest-timeout>=2.3,<3", "pytest-cov>=5.0", "httpx2>=0.28",
+       "ruff>=0.8,<1"]
 
 [tool.uv.sources]
 iserv-ausleihe-api = { path = "../ausleihe-api", editable = true }
@@ -25,7 +30,12 @@ package = false
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-q --cov=server --cov-report=term-missing"
+# --timeout-method=thread wie im Dashboard: "signal" braeuchte SIGALRM und
+# ist bei Threads/Multiprocessing-Kindern die falsche Wahl; die thread-Methode
+# gibt beim Zuschlagen den Stack jedes Threads aus — genau der Befund, den man
+# bei einem verklemmten Schloss sonst raten muesste. 300s: die volle Suite
+# (635 Tests) braucht lokal ~40s, ein einzelner Test Sekunden.
+addopts = "-q --timeout=300 --timeout-method=thread --cov=server --cov-report=term-missing"
 
 [tool.ruff]
 target-version = "py312"
